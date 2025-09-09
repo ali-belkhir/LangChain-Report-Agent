@@ -1,0 +1,61 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# ---- Virtual Environments ----
+.env
+.venv
+env/
+venv/
+ENV/
+
+# ---- IDE / Editors ----
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+
+# ---- Logs & Debug ----
+*.log
+*.pot
+*.pyc
+*.pkl
+
+# ---- Reports ----
+reports/
+*.docx
+
+# ---- Ollama / LangChain caches ----
+.cache/
+chromadb/
+.vectorstore/
+langchain.db
+
+# ---- Uvicorn reload artifacts ----
+*.pid
+*.lock
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+*.ipynb
+
+# ---- Tests ----
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ---- Secrets ----
+*.secret
+*.key
+*.pem
