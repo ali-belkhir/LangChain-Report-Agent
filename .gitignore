@@ -34,6 +34,7 @@ Thumbs.db
 
 # ---- Reports ----
 reports/
+db_web/
 *.docx
 
 # ---- Ollama / LangChain caches ----
