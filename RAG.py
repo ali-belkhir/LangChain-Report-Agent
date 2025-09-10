@@ -1,73 +1,41 @@
-# RAG.py
-import os
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.schema import Document
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.llms import Ollama
+from langchain.chains import RetrievalQA
 
-# ---------- Persistent vector DB config ----------
-CHROMA_DIR = os.environ.get("CHROMA_DIR", "chroma_db")
-COLLECTION_NAME = os.environ.get("CHROMA_COLLECTION", "rag_corpus")
+# 1. Load web page
+url = "https://tradingeconomics.com/"  # Example: commodities news
+loader = WebBaseLoader(url)
+docs = loader.load()
 
-_embeddings = OllamaEmbeddings(model="nomic-embed-text")
-_vectorstore = Chroma(
-    collection_name=COLLECTION_NAME,
-    persist_directory=CHROMA_DIR,
-    embedding_function=_embeddings,
+# 2. Split into chunks
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+chunks = splitter.split_documents(docs)
+
+# 3. Create embeddings
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# 4. Store in vector DB
+vectordb = Chroma.from_documents(chunks, embedding=embeddings, persist_directory="db_web")
+
+# 5. Create retriever
+retriever = vectordb.as_retriever(search_kwargs={"k": 3})
+
+# 6. Load Ollama model
+llm = Ollama(model="mistral")  # Or llama2, or any local Ollama model
+
+# 7. Create Retrieval-QA chain
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    return_source_documents=True
 )
 
-_text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=800,
-    chunk_overlap=100,
-    separators=["\n\n", "\n", ". ", " ", ""],
-)
+# 8. Ask a question
+query = "What is the inflation rate and GDP of United States ?"
+result = qa_chain({"query": query})
 
-# ----------- Helpers -----------
-def _fetch_url_text(url: str) -> str:
-    resp = requests.get(url, timeout=15)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for s in soup(["script", "style", "noscript"]):
-        s.decompose()
-    return soup.get_text(separator=" ", strip=True)
-
-# ----------- Indexing -----------
-def index_url(url: str) -> str:
-    """Fetch content from a URL, chunk, and add to the vector index."""
-    try:
-        text = _fetch_url_text(url)
-        if not text or len(text) < 50:
-            return f"Fetched but little content at {url}"
-        docs = [Document(page_content=chunk, metadata={"source": url})
-                for chunk in _text_splitter.split_text(text)]
-        _vectorstore.add_documents(docs)
-        _vectorstore.persist()
-        return f"Indexed {len(docs)} chunks from {url}"
-    except Exception as e:
-        return f"Error indexing {url}: {e}"
-
-def index_csv(file_path: str) -> str:
-    """Load a CSV and index its rows into the vector DB."""
-    try:
-        df = pd.read_csv(file_path)
-        if df.empty:
-            return f"CSV at {file_path} is empty"
-        rows_as_text = df.astype(str).apply(
-            lambda r: " | ".join(f"{c}: {r[c]}" for c in df.columns), axis=1
-        ).tolist()
-        docs = [Document(page_content=chunk, metadata={"source": file_path})
-                for chunk in _text_splitter.split_text("\n".join(rows_as_text))]
-        _vectorstore.add_documents(docs)
-        _vectorstore.persist()
-        return f"Indexed {len(docs)} chunks from {file_path}"
-    except Exception as e:
-        return f"Error indexing CSV {file_path}: {e}"
-
-# ----------- Retrieval -----------
-def retrieve_relevant(query: str, k: int = 5) -> list[str]:
-    """Retrieve top-k most relevant chunks for a query."""
-    results = _vectorstore.similarity_search(query, k=k)
-    return [doc.page_content for doc in results]
+print("Answer:", result["result"])
+print("\nSources:", [doc.metadata['source'] for doc in result["source_documents"]])
