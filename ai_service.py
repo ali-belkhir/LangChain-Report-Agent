@@ -6,8 +6,27 @@ from langchain_ollama import ChatOllama
 from langchain.output_parsers import PydanticOutputParser
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from schemas import ReportOutput, ReportSummary, PriceEvolution
-from tools import tools, generate_word_report
+from tools import generate_word_report, get_website_content, retrieve_relevant_context
+from langchain_core.tools import Tool
 
+# Wrap your Python functions into LangChain Tool objects
+website_tool = Tool(
+    name="get_website_content",
+    func=get_website_content,
+    description="Extracts raw text content from a given website URL"
+)
+
+rag_tool = Tool(
+    name="retrieve_relevant_context",
+    func=retrieve_relevant_context,
+    description="Retrieve only relevant chunks of text from the RAG index"
+)
+
+report_tool = Tool(
+    name="generate_word_report",
+    func=generate_word_report,
+    description="Generates a Word report file from a structured summary"
+)
 
 
 # Initialize the FastAPI app for the AI service.
@@ -29,16 +48,16 @@ parser = PydanticOutputParser(pydantic_object=ReportOutput)
 # Create the prompt template for the LLM agent.
 prompt = ChatPromptTemplate.from_messages([
     ("system", (
-        "You are a report generator AI. "
-        "Your job is to extract content from the given URL using the 'get_website_content' tool, "
-        "analyze it, and write a clear structured report. "
-        "You must return the output in **strict JSON format** that matches the schema:\n"
+        "You are a report generator AI agent.\n"
+        "1. Use the 'get_website_content' tool to extract the raw content from the URL.\n"
+        "2. Use the RAG pipeline to retrieve only the relevant informations based on the task.\n"
+        "3. Analyze this context and generate a clear structured report.\n\n"
+        "The output must be in strict JSON format matching the schema:\n"
         "- url: string\n"
-        "- report_summary: object with title, date, description, prices (energy, price, evolution)\n"
+        "- report_summary: {{ title, date, description }}\n"
         "- word_file_path: string\n\n"
-        "Do NOT include any explanations, code snippets, or Python functions in your output. "
-        "Only return valid JSON."
-        "\n\n{format_instructions}"
+        "Finally, call 'generate_word_report' tool to create the Word file.\n\n"
+        "Only return valid JSON.\n\n{format_instructions}"
     )),
     ("placeholder", "{chat_history}"),
     ("user", "{task_description}"),
@@ -46,8 +65,17 @@ prompt = ChatPromptTemplate.from_messages([
 ])
 
 # Create the agent executor.
-agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+agent = create_tool_calling_agent(
+    llm=llm,
+    tools=[website_tool, rag_tool, report_tool],
+    prompt=prompt
+)
+
+agent_executor = AgentExecutor(
+    agent=agent,
+    tools=[website_tool, rag_tool, report_tool],
+    verbose=True
+)
 
 # Define the endpoint for processing tasks.
 @app.post("/process-task")
